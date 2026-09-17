@@ -40,7 +40,7 @@ def render_product_card(product: Dict[str, Any], is_primary: bool = False):
     c1, c2, c3 = st.columns(3)
     with c1:
         st.markdown("#### 📏 Specifications")
-        st.markdown(f"**Available Sizes:** {', '.join(product.get('sizes_available', [])) or 'N/A'}")
+        st.markdown(f"**Available Sizes:** {', '.join([str(x) for x in product.get('sizes_available', [])]) or 'N/A'}")
         st.markdown(f"**Absorbency:** {product.get('absorbency', 'N/A')}")
         st.markdown(f"**Hydration:** {product.get('hydration', 'N/A')}")
         st.markdown(f"**Sterilization:** {product.get('sterilization', 'N/A')}")
@@ -48,14 +48,18 @@ def render_product_card(product: Dict[str, Any], is_primary: bool = False):
     with c2:
         st.markdown("#### ⏱️ Clinical Protocol")
         st.markdown(f"**Healing Phase:** {product.get('healing_phase', 'N/A')}")
-        st.markdown(f"**Application / Goal:** {', '.join(product.get('applications', []))}")
+        st.markdown(f"**Application / Goal:** {', '.join([str(x) for x in product.get('applications', [])])}")
         st.markdown(f"**Change Frequency:** {product.get('frequency', 'N/A')}")
         st.markdown(f"**Max Wear Time:** {product.get('wear_time', 'N/A')}")
 
     with c3:
         st.markdown("#### 🎯 Clinical Indications")
-        st.markdown(f"**Wound Types:** {', '.join(product.get('wound_types', []))}")
-        st.markdown(f"**Exudate Levels:** {', '.join(product.get('exudate_levels', []))}")
+        st.markdown(f"**Wound Types:** {', '.join([str(x) for x in product.get('wound_types', [])])}")
+        # Fix: Convert list items to string before join to avoid float errors
+        exudate_list = product.get('exudate_levels', [])
+        if not isinstance(exudate_list, list):
+            exudate_list = [exudate_list]
+        st.markdown(f"**Exudate Levels:** {', '.join([str(x) for x in exudate_list if x is not None])}")
 
         inds = product.get('indications', [])
         if len(inds) > 3:
