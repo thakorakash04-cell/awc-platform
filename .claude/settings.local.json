@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)",
+      "Bash(# First, try to list the directory to see if I have access. *)"
+    ]
+  }
+}
