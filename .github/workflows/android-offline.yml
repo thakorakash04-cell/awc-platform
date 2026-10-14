@@ -1,0 +1,41 @@
+name: Build offline Android APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, main, feat/offline-android]
+    paths: ['android/**', 'data/AWCare_Merged.xlsx', '.github/workflows/android-offline.yml']
+  pull_request:
+    paths: ['android/**', 'data/AWCare_Merged.xlsx', '.github/workflows/android-offline.yml']
+permissions:
+  contents: read
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: android-actions/setup-android@v3
+      - name: Install SDK packages
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Check bundled catalog is current and test Python parity
+        run: |
+          pip install pandas openpyxl
+          python android/tools/generate_parity.py "$RUNNER_TEMP/parity.json"
+          node android/tools/test_engine.cjs "$RUNNER_TEMP/parity.json"
+          python android/tools/check_catalog.py
+      - name: Build and verify signed test APK
+        run: android/tools/build-apk.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AWC-Offline-Android-test
+          path: android/app/build/manual/AWC-Offline-v1.0.0-test.apk
+          retention-days: 30
