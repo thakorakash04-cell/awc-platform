@@ -4,7 +4,7 @@ Main Entry Point
 """
 
 import streamlit as st
-from workspace_auth import require_workspace
+from workspace_auth import require_workspace, can
 
 
 def main():
@@ -22,7 +22,7 @@ def main():
         button[kind='primary']{background:#258467;border-color:#258467;color:white}
         .block-container{padding-top:2rem}
     </style>""", unsafe_allow_html=True)
-    require_workspace()
+    account_store,account_actor,_ = require_workspace()
 
     from ui.styles import apply_clinical_theme
     from ui.layperson_view import render_layperson_view
@@ -61,6 +61,10 @@ def main():
     )
     st.sidebar.caption("v1.0.0 | Phased Bifurcated Architecture")
 
+    account_store.record_access(account_actor,track_choice)
+    if track_choice in ["🩺 Clinician Workspace (CDS)","🩹 Patient & Caregiver Guide","📷 Assistive Image Analysis (HITL)"] and not can("use_tools"):
+        st.info("Your administrator has limited this account to the catalog and guidelines.")
+        return
     # Render Chosen View
     if track_choice == "🩺 Clinician Workspace (CDS)":
         render_clinician_view()
