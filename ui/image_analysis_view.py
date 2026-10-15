@@ -6,7 +6,7 @@ import streamlit as st
 from vision.iqa_gate import evaluate_image_quality
 from vision.photo_workflow import prepare_photo,crop_photo,compare_measured_areas
 from vision.tissue_segmentation import segment_wound_tissue
-from vision.vision_model import describe_photo
+from vision.vision_model import describe_photo,check_connection,DEFAULT_MODEL
 from vision.settings import load_vision_settings
 from data.wound_history import WoundHistory
 from data.awc_data_manager import get_awc_data_manager
@@ -28,6 +28,14 @@ def render_image_analysis_view():
             st.warning('Gemini API key is missing. Add GEMINI_API_KEY in Streamlit → Manage app → Settings → Secrets, then save and reboot the app.')
             st.code('GEMINI_API_KEY = "your-private-key"',language='toml')
         st.caption('Model: '+model+'. The key stays on the server. Photos are sent only after you authorise an AI description.')
+        if model.removeprefix('models/').startswith('gemini-2.5'):
+            st.info('Google restricts 2.5 models for new projects. If access fails, set WOUND_VISION_MODEL = "'+DEFAULT_MODEL+'" in Streamlit Secrets.')
+        if st.button('Check Gemini connection',disabled=not gemini_key):
+            try:
+                with st.spinner('Checking Gemini access…'):check_connection(gemini_key,model)
+                st.success('API key and model access verified. No photo was sent. Generation quota and image support are checked when you request a description.')
+            except ValueError as exc:st.error(str(exc))
+
     store=st.session_state._account_store;actor=st.session_state.actor
     dm=get_awc_data_manager()
     st.info('Photo observations are not a diagnosis. Colour cannot determine infection, depth, exudate volume or healing. Product candidates require a separate clinical assessment and confirmation.')

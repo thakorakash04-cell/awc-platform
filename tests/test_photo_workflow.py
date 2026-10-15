@@ -61,7 +61,7 @@ def test_ai_rejects_diagnosis_fields_and_blocked_or_incomplete_responses():
         post.return_value.json.return_value={'candidates':[{'finishReason':'STOP','content':{'parts':[{'text':json.dumps({'wound_visible':True,'description':'x','visible_colors':[],'limitations':[],'diagnosis':'forbidden'})}]}}]}
         with pytest.raises(ValueError):describe_photo(image,'key',consent=True)
         post.return_value=Mock(status_code=401)
-        with pytest.raises(ValueError,match='provider'):describe_photo(image,'key',consent=True)
+        with pytest.raises(ValueError,match='API key'):describe_photo(image,'key',consent=True)
 
 def test_history_is_private_permission_checked_and_does_not_save_images():
     with tempfile.TemporaryDirectory() as folder:
