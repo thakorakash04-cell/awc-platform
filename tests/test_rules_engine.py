@@ -29,6 +29,9 @@ def test_deep_cavity_wound_triggers_cavity_filler():
     assert result.cavity_filler is not None
     assert result.cavity_filler.product.role == DressingRole.CAVITY_FILLER
     assert result.secondary_cover is not None
+    assert result.optimal_primary is None  # Composite is the cover, not a duplicate contact layer.
+    assert 'Cover entirely with' in result.change_protocol_summary
+    assert f'Apply {result.secondary_cover.product.brand_name} directly to wound bed' not in result.change_protocol_summary
 
 
 def test_fragile_periwound_triggers_skin_protectant_and_gentle_foam():

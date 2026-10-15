@@ -151,6 +151,17 @@ def process_clinical_assessment(assessment: WoundAssessment) -> RecommendationRe
                     secondary_dressing_required=False,
                 )
 
+    # A cavity filler is the contact layer. A self-contained composite selected
+    # above serves as its cover, rather than a second primary layer plus a duplicate cover.
+    if result.cavity_filler and result.optimal_primary and not result.secondary_cover:
+        primary=result.optimal_primary
+        if primary.product.role==DressingRole.COMPOSITE and not primary.secondary_dressing_required:
+            result.secondary_cover=primary.model_copy(update={
+                "role_in_care_plan":"Secondary Cover Dressing",
+                "match_rationale":primary.match_rationale+["Covers the selected cavity filler; not an additional wound-bed contact layer."],
+            })
+            result.optimal_primary=None
+
     # 4D. Periwound Skin Protectant
     if assessment.periwound_state in [PeriwoundCondition.FRAGILE_AGED, PeriwoundCondition.MACERATED, PeriwoundCondition.EXCORIATED_DENUDED]:
         protectants = [p for p in safe_products if p.category == DressingCategory.SKIN_BARRIER_FILM]

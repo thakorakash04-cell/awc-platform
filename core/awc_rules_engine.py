@@ -16,6 +16,7 @@ def evaluate_awc_query(
     healing_phase: Optional[str] = "All",
     has_emergency_flags: bool = False,
     emergency_reason: Optional[str] = None,
+    allow_fallback: bool = True,
 ) -> Dict[str, Any]:
     """
     Evaluates clinical parameters against the user's AWC dataset.
@@ -47,7 +48,7 @@ def evaluate_awc_query(
 
     # If no strict match, fallback gracefully with partial matching (e.g. relax dressing_type or application)
     fallback_used = False
-    if not matches and (dressing_type != "All" or application != "All"):
+    if allow_fallback and not matches and (dressing_type != "All" or application != "All"):
         matches = dm.filter_products(
             wound_type=wound_type if wound_type != "All" else None,
             indication=indication if indication != "All" else None,

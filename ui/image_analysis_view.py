@@ -1,142 +1,155 @@
-"""
-Image Analysis & Human-in-the-Loop (HITL) Verification View
-Assists in parameter estimation with IQA gates and interactive mask inspection connected to the AWCare dataset.
-"""
-
+"""Three-photo review, optional visual description and confirmed formulary matching."""
+import hashlib,json,os,uuid
+from datetime import date,datetime,timezone
+import pandas as pd
 import streamlit as st
-from PIL import Image
 from vision.iqa_gate import evaluate_image_quality
+from vision.photo_workflow import prepare_photo,crop_photo,compare_measured_areas
 from vision.tissue_segmentation import segment_wound_tissue
+from vision.vision_model import describe_photo,DEFAULT_MODEL
+from data.wound_history import WoundHistory
 from data.awc_data_manager import get_awc_data_manager
 from core.awc_rules_engine import evaluate_awc_query
 from ui.components import render_product_card
+from workspace_auth import can
 
+REF='https://www.smith-nephew.com/en/health-care-professionals/products/advanced-wound-management/clinical-support-app'
 
 def render_image_analysis_view():
-    st.header("📷 Assistive Wound Image Analysis (HITL Mode)")
-    st.caption("Human-in-the-Loop Computer Vision Pipeline connecting to the AWCare Formulary")
-
-    dm = get_awc_data_manager()
-
-    st.markdown(
-        """
-        <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin-bottom: 20px; border-radius: 4px;">
-            <b>⚠️ MANDATORY CLINICAL SAFETY NOTICE:</b><br>
-            Computer vision from smartphone photos <i>cannot</i> detect microscopic bacterial biofilms,
-            cannot perceive 3D cavity depth/tunneling, and can misread erythema on darker skin tones (Fitzpatrick IV–VI).
-            Extracted visual metrics are <b>assistive suggestions only</b> and require manual verification.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    uploaded_img = st.file_uploader("Upload or take a photo of the wound", type=["jpg", "jpeg", "png"])
-
-    if uploaded_img is not None:
+    st.header('Photo assessment & product matching')
+    st.caption('Capture → review → confirm clinical findings → match your formulary. Supports up to three dated photos of one wound.')
+    if not can('use_tools'):
+        st.info('Ask your administrator for assessment-tool access.');return
+    store=st.session_state._account_store;actor=st.session_state.actor
+    dm=get_awc_data_manager()
+    st.info('Photo observations are not a diagnosis. Colour cannot determine infection, depth, exudate volume or healing. Product candidates require a separate clinical assessment and confirmation.')
+    with st.expander('Workflow reference'):
+        st.write('Inspired by the guided location, appearance, exudate, depth and formulary workflow described for Smith+Nephew WOUND COMPASS. This is an independent implementation, not its APK, model or validated clinical system.')
+        st.link_button('Official WOUND COMPASS overview',REF)
+    st.session_state.setdefault('wound_case_ref','W-'+uuid.uuid4().hex[:8])
+    case_ref=st.text_input('De-identified wound reference',key='wound_case_ref',help='Do not use a patient name, phone number or hospital ID. Keep the same reference for follow-ups.')
+    with st.expander('Previously saved assessments'):
         try:
-            image = Image.open(uploaded_img)
-
-            # Step 1: Pre-flight Image Quality Assessment
-            iqa = evaluate_image_quality(image)
-
-            st.subheader("1. Image Quality Assessment (IQA Gate)")
-            col_iqa1, col_iqa2, col_iqa3 = st.columns(3)
-            with col_iqa1:
-                st.metric("Sharpness Score", f"{iqa['sharpness_score']:.1f}", delta="Sharp" if iqa['sharpness_score'] >= 40 else "Blurry")
-            with col_iqa2:
-                st.metric("Mean Luminance", f"{iqa['mean_luminance']:.1f}", delta="Adequate" if 40 <= iqa['mean_luminance'] <= 220 else "Poor Light")
-            with col_iqa3:
-                st.metric("Specular Glare", f"{iqa['glare_ratio_pct']:.1f}%", delta="Low Glare" if iqa['glare_ratio_pct'] < 8.0 else "High Glare", delta_color="inverse")
-
-            if not iqa["passed"]:
-                st.error("❌ **Image Quality Rejected:**")
-                for r in iqa["rejection_reasons"]:
-                    st.write(f"- {r}")
-                st.info(f"💡 **Guidance:** {iqa['guidance']}")
-                st.warning("Please upload a clearer image, or proceed directly to the manual Clinician or Patient tabs.")
-                return
-
-            st.success("✅ **Image Quality Passed:** Illumination and focus are suitable for assistive feature analysis.")
-
-            # Step 2: Semantic Segmentation
-            st.markdown("---")
-            st.subheader("2. Visual RYB Tissue Segmentation")
-
-            percentages, overlay_img = segment_wound_tissue(image)
-
-            c_img1, c_img2 = st.columns(2)
-            with c_img1:
-                st.image(image, caption="Original Wound Photo", use_container_width=True)
-            with c_img2:
-                st.image(overlay_img, caption="Segmented Overlay (Red: Granulation | Yellow: Slough | Black: Eschar)", use_container_width=True)
-
-            # Metrics
-            st.markdown("##### Extracted Tissue Composition:")
-            m1, m2, m3 = st.columns(3)
-            with m1:
-                st.metric("🔴 Granulation (Viable)", f"{percentages['granulation_red']}%")
-            with m2:
-                st.metric("🟡 Slough (Non-viable)", f"{percentages['slough_yellow']}%")
-            with m3:
-                st.metric("⚫ Eschar (Necrotic)", f"{percentages['eschar_black']}%")
-
-            # Step 3: Human-in-the-Loop Confirmation
-            st.markdown("---")
-            st.subheader("3. Human-in-the-Loop (HITL) Parameter Confirmation")
-            st.markdown("Review and confirm parameters from your dataset before generating recommendations:")
-
-            # Heuristic suggestions
-            suggested_exudate = "Moderate"
-            if percentages['slough_yellow'] > 30: suggested_exudate = "Heavy"
-            elif percentages['eschar_black'] > 40: suggested_exudate = "Mild"
-
-            suggested_app = "Moisture Balance"
-            if percentages['slough_yellow'] > 40 or percentages['eschar_black'] > 30:
-                suggested_app = "Debridement"
-
-            all_wtypes = ["All"] + dm.get_wound_types()
-            all_ex = ["All"] + dm.get_exudate_levels()
-            all_apps = ["All"] + dm.get_applications()
-
-            h_col1, h_col2, h_col3 = st.columns(3)
-            with h_col1:
-                conf_wtype = st.selectbox("Confirm Wound Type", all_wtypes, index=0)
-            with h_col2:
-                ex_idx = all_ex.index(suggested_exudate) if suggested_exudate in all_ex else 0
-                conf_exudate = st.selectbox("Confirm Exudate Level", all_ex, index=ex_idx)
-            with h_col3:
-                app_idx = all_apps.index(suggested_app) if suggested_app in all_apps else 0
-                conf_app = st.selectbox("Confirm Clinical Goal", all_apps, index=app_idx)
-
-            st.markdown("---")
-            st.subheader("💡 Matching Product Recommendations")
-
-            result = evaluate_awc_query(
-                wound_type=conf_wtype,
-                exudate_level=conf_exudate,
-                application=conf_app,
-                dressing_type="All"
-            )
-
-            total = result["total_count"]
-            if total == 0:
-                st.warning("No matching products found in dataset for this specific combination. Try relaxing filters.")
-            else:
-                st.success(f"✅ Found **{total}** matching product(s) in your formulary.")
-
-                if result["primary_matches"]:
-                    st.markdown("### 🥇 Primary Wound Dressings")
-                    for p in result["primary_matches"]:
-                        render_product_card(p, is_primary=True)
-
-                if result["secondary_matches"]:
-                    st.markdown("### 🥈 Secondary Dressings")
-                    for p in result["secondary_matches"]:
-                        render_product_card(p, is_primary=False)
-
-                if not (result["primary_matches"] or result["secondary_matches"]) and result["all_matches"]:
-                    for p in result["all_matches"]:
-                        render_product_card(p, is_primary=False)
-
-        except Exception as e:
-            st.error(f"Error processing image: {str(e)}")
+            saved=WoundHistory(store).records(actor,case_ref)
+            if saved:
+                table=[]
+                for record in saved:
+                    latest=record['photos'][-1]
+                    table.append({'Saved (UTC)':datetime.fromtimestamp(record['saved_at'],timezone.utc).strftime('%d %b %Y %H:%M'),
+                        'Capture date':latest['captured_on'],'Measured area (cm²)':latest['area_cm2'],**record['clinical']})
+                st.table(pd.DataFrame(table))
+                measured={}
+                for record in reversed(saved):
+                    for capture in record['photos']:
+                        if capture['area_cm2'] is not None:measured[capture['captured_on']]=capture['area_cm2']
+                if len(measured)>1:
+                    st.caption('Clinician-entered area history; not an AI healing assessment.')
+                    st.line_chart(pd.DataFrame({'Date':pd.to_datetime(list(measured)),'Entered area (cm²)':list(measured.values())}).sort_values('Date').set_index('Date'))
+            else:st.caption('No records for this reference in your account. Only confirmed observations and entered measurements are saved, never photos.')
+        except ValueError as exc:st.warning(str(exc))
+    st.subheader('1. Add up to three photos')
+    source=st.radio('Photo source',['Upload photos','Use camera'],horizontal=True,key='wound_photo_source')
+    st.caption('Photograph the same site at a similar angle and lighting. Exclude identifying features. Photos remain in the session unless you explicitly send a crop to the optional AI provider.')
+    photos=[];quality_failed=False
+    for index,column in enumerate(st.columns(3)):
+        with column:
+            st.markdown(f'**Photo {index+1}**'+(' · required' if index==0 else ' · optional'))
+            photo=st.file_uploader(f'Upload photo {index+1}',type=['jpg','jpeg','png'],key=f'wound_upload_{index}') if source=='Upload photos' else st.camera_input(f'Take photo {index+1}',key=f'wound_camera_{index}')
+            if photo is None:continue
+            try:
+                image=prepare_photo(photo.getvalue());digest=hashlib.sha256(photo.getvalue()).hexdigest()[:12]
+                key=f'photo_{index}_{digest}'
+                captured=st.date_input('Capture date',value=date.today(),max_value=date.today(),key=key+'_date')
+                iqa=evaluate_image_quality(image)
+                st.image(image,caption=f'Photo {index+1}',width='stretch')
+                if not iqa['passed']:
+                    quality_failed=True
+                    for reason in iqa['rejection_reasons']:st.warning(reason)
+                    continue
+                st.caption('Basic quality checks passed. Adjust the crop to exclude healthy skin and dressings.')
+                horizontal=st.slider('Crop left / right (%)',0,100,(0,100),key=key+'_x')
+                vertical=st.slider('Crop top / bottom (%)',0,100,(0,100),key=key+'_y')
+                crop=crop_photo(image,horizontal,vertical)
+                st.image(crop,caption='Selected wound-bed crop',width='stretch')
+                roi_confirmed=st.checkbox('This crop contains the wound bed I intend to review',key=key+f'_{horizontal}_{vertical}_roi')
+                area=None
+                if st.checkbox('I have a clinically measured area',key=key+'_measured'):
+                    area=st.number_input('Measured area (cm²)',min_value=0.0,value=0.0,step=.1,key=key+'_area')
+                photos.append({'slot':index,'source_hash':digest,'image':crop,'captured_on':captured.isoformat(),'area_cm2':area,'confirmed':roi_confirmed,'digest':key+str(horizontal)+str(vertical)})
+            except ValueError as exc:quality_failed=True;st.error(str(exc))
+    if quality_failed:st.info('Replace rejected photos before continuing, or use the manual assessment workspace.');return
+    if not photos:st.caption('Add a photo to start the review.');return
+    if photos[0]['slot']!=0:st.info('Add Photo 1 before adding follow-ups.');return
+    if len({p['source_hash'] for p in photos})!=len(photos):
+        st.warning('Use different captures for a longitudinal comparison.');return
+    if not all(p['confirmed'] for p in photos):st.info('Confirm the wound-bed crop for every photo.');return
+    if len(photos)>1 and not st.checkbox('All photos show the same wound and can be compared',key='same_wound_'+''.join(p['digest'] for p in photos)):
+        return
+    try:comparison=compare_measured_areas(photos)
+    except ValueError as exc:st.warning(str(exc));return
+    st.subheader('2. Review image observations')
+    for photo,column in zip(photos,st.columns(len(photos))):
+        colors,overlay=segment_wound_tissue(photo['image']);photo['colors']=colors
+        with column:
+            st.image(overlay,caption=photo['captured_on']+' · colour overlay',width='stretch')
+            st.write(f"Red-like: {colors['granulation_red']}% · Yellow-like: {colors['slough_yellow']}% · Dark: {colors['eschar_black']}% · Unclassified: {colors['unclassified']}%")
+    st.caption('These are local pixel-colour fractions, not measured tissue composition or a healing score. Lighting, blood, shadows and skin tone can change the result.')
+    if comparison:
+        st.metric('Entered area: first → latest',f"{comparison['initial_cm2']:g} → {comparison['latest_cm2']:g} cm²")
+        st.write(f"Change in clinician-entered area: {comparison['change_cm2']:+.2f} cm² ({comparison['reduction_percent']:+.1f}% reduction).")
+        st.caption('Descriptive comparison only; this is not evidence of healing or a photo-derived measurement.')
+    else:st.caption('To compare area, enter a clinical cm² measurement for the first and latest photo. Pixel area is never converted into wound size.')
+    latest=photos[-1]
+    with st.expander('Optional AI visual description'):
+        st.caption('Local analysis works without an API key. This optional step sends only the latest cropped image, re-encoded without EXIF metadata, to Google Gemini. A general-purpose model is not a validated wound diagnostic model. Provider terms and data handling apply.')
+        try:settings=dict(st.secrets)
+        except (FileNotFoundError,st.errors.StreamlitSecretNotFoundError):settings={}
+        key=str(settings.get('GEMINI_API_KEY',os.getenv('GEMINI_API_KEY','')))
+        model=str(settings.get('WOUND_VISION_MODEL',os.getenv('WOUND_VISION_MODEL',DEFAULT_MODEL)))
+        st.caption('Configured model: '+model)
+        if not key:key=st.text_input('Gemini API key for this session',type='password',key='wound_gemini_key')
+        consent=st.checkbox('I am authorised to send this de-identified crop to Google for an AI description',key='photo_ai_consent_'+latest['digest'])
+        note_key='visual_note_'+latest['digest']+model
+        if st.button('Describe latest crop with AI',disabled=not key or not consent):
+            store.require_permission(actor,'use_tools')
+            try:
+                with st.spinner('Requesting a visual description…'):st.session_state[note_key]=describe_photo(latest['image'],key,model,consent=consent)
+                store.log_event(actor,'tool_use','Optional photo description')
+            except ValueError as exc:st.error(str(exc))
+        if note_key in st.session_state:
+            note=st.session_state[note_key]
+            st.write(note['description']);st.write('Visible colours: '+', '.join(note['visible_colors']))
+            for limitation in note['limitations']:st.caption(limitation)
+            if not note['wound_visible']:st.warning('AI did not identify a clear wound. Use manual clinical assessment; no AI diagnosis or product choice is made.')
+    st.subheader('3. Confirm clinical findings')
+    st.caption('Complete these from clinical assessment, not from colour percentages or AI text.')
+    location=st.selectbox('Anatomical location',['Select location','Lower limb','Foot','Sacral / trunk','Upper limb','Other assessed site'])
+    col1,col2,col3=st.columns(3)
+    wound_type=col1.selectbox('Assessed wound type',['Select wound type']+dm.get_wound_types())
+    exudate=col2.selectbox('Assessed exudate level',['Select exudate level']+dm.get_exudate_levels())
+    goal=col3.selectbox('Clinician-selected goal',['Select goal']+dm.get_applications())
+    depth=st.radio('Depth / cavity assessment',['Not assessed','Superficial — assessed in person','Cavity / tunnelling or uncertain depth — specialist review'],key='photo_depth')
+    status=st.radio('Infection and vascular assessment',['Not assessed','Assessed: no identified concern requiring specialist review','Concern present — specialist review'],key='photo_safety_status')
+    emergency=st.checkbox('Fever with spreading infection, exposed bone/tendon, or a cold/pale limb',key='photo_emergency')
+    review_token=hashlib.sha256(json.dumps([case_ref,[(p['digest'],p['captured_on'],p['area_cm2']) for p in photos],location,wound_type,exudate,goal,depth,status]).encode()).hexdigest()[:16]
+    clinician=st.checkbox('A clinician has reviewed these findings, patient allergies and product precautions',key='photo_clinician_review_'+review_token)
+    # Changes to crop/clinical inputs require a fresh explicit matching action.
+    if emergency:
+        st.error('Urgent in-person medical evaluation is needed. Product matching is stopped.');return
+    if depth=='Not assessed' or status=='Not assessed':st.info('Assess depth, infection and vascular status before product matching.');return
+    if depth.startswith('Cavity') or status.startswith('Concern'):
+        st.warning('Use specialist clinical assessment for this wound; photo-based product matching is withheld.');return
+    ready=clinician and not any(value.startswith('Select') for value in (location,wound_type,exudate,goal))
+    if st.button('Match confirmed findings to products',type='primary',disabled=not ready):
+        store.require_permission(actor,'use_tools')
+        result=evaluate_awc_query(wound_type=wound_type,exudate_level=exudate,application=goal,allow_fallback=False)
+        store.log_event(actor,'tool_use','Reviewed formulary matching')
+        if not result['all_matches']:st.info('No exact formulary match. Clinical criteria were not relaxed automatically.')
+        else:
+            st.success(f"{result['total_count']} formulary candidates. Review indications and contraindications; these are not AI prescriptions.")
+            for product in result['all_matches']:render_product_card(product,is_primary='primary' in product.get('dressing_type','').lower())
+    if st.button('Save confirmed assessment to my history',disabled=not ready):
+        try:
+            WoundHistory(store).save(actor,case_ref,photos,{'wound_type':wound_type,'exudate':exudate,'goal':goal,'location':location,'depth_assessed':depth})
+            st.success('Confirmed observations saved privately to your account. No photo or AI text was stored.')
+        except ValueError as exc:st.error(str(exc))

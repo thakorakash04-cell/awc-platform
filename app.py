@@ -53,8 +53,8 @@ def main():
     st.sidebar.markdown(
         """
         **🛡️ Clinical Safety Core:**
-        - FDA Non-Device CDS Compliant (§ 520(o))
-        - IEC 62366-1 Usability & Safety Matrix
+        - Clinician-reviewed decision support; no regulatory approval claimed
+        - Image-quality checks and manual confirmation
         - WOCN / EWMA / IWII Guidelines
         - Poka-Yoke Contraindication Interlocks
         """
@@ -88,7 +88,7 @@ def render_documentation_view():
         1. **Clinician Track (Clinical Decision Support):**
            - Gated by NPI / professional credentials.
            - Integrates full 12-parameter clinical matrix: Etiology, Vascular status (ABPI), TIME framework, 3D Cavity measurements, Bioburden grading, and Periwound skin integrity.
-           - Provides transparent clinical citations and rationale, qualifying as **FDA Non-Device CDS** under Section 520(o)(1)(E) of the FD&C Act.
+           - Provides clinician-facing rationale; regulatory status and clinical validation require separate evaluation.
            - Incorporates **Medicare Part B Surgical Dressing LCD L33331** HCPCS billing codes and allowable quantity limits.
 
         2. **Layperson Track (Patient & Caregiver Triage):**
@@ -98,7 +98,7 @@ def render_documentation_view():
 
         3. **Assistive Computer Vision (HITL Mode):**
            - Implements pre-flight Image Quality Assessment (IQA) checking for blur, glare, and illumination.
-           - Provides color-space RYB tissue segmentation (Granulation, Slough, Eschar).
+           - Provides crop-based colour observations, including an unclassified category. Colour fractions are not tissue diagnoses. Supports up to three dated photos and optional AI visual descriptions after explicit consent.
            - Enforces **Human-in-the-Loop (HITL)** verification; raw AI predictions never directly prescribe dressings.
 
         4. **Poka-Yoke Safety Interlocks:**

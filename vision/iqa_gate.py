@@ -57,6 +57,6 @@ def evaluate_image_quality(image: Image.Image) -> Dict[str, Any]:
             "Capture photo perpendicular to the wound in natural light. "
             "Avoid direct flashlight glare on moist surfaces."
             if not passed_all
-            else "Image quality passed clinical gate."
+            else "Basic photo-quality checks passed; this does not validate clinical interpretation."
         ),
     }
