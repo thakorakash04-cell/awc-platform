@@ -13,7 +13,7 @@ def test_photo_review_is_required_and_red_flags_block_matching():
         with patch.dict(os.environ,{'DATABASE_URL':url,'ADMIN_USERNAME':'admin_user','ADMIN_PASSWORD':'Initial-admin-password!123'}):
             store=Store(url);store.bootstrap_admin('admin_user','Initial-admin-password!123')
             at=AppTest.from_file(str(Path(__file__).resolve().parents[1]/'app.py'),default_timeout=30)
-            at.secrets.update({'DATABASE_URL':url,'ADMIN_USERNAME':'admin_user','ADMIN_PASSWORD':'Initial-admin-password!123'})
+            at.secrets.update({'GEMINI_API_KEY':'test-server-secret','DATABASE_URL':url,'ADMIN_USERNAME':'admin_user','ADMIN_PASSWORD':'Initial-admin-password!123'})
             at.run();at.text_input(key='login_username').set_value('admin_user');at.text_input(key='login_password').set_value('Initial-admin-password!123')
             next(b for b in at.button if b.label=='Sign in').click().run()
             arr=np.random.default_rng(42).integers(50,200,(500,500,3),dtype=np.uint8)
@@ -24,6 +24,14 @@ def test_photo_review_is_required_and_red_flags_block_matching():
                 assert not at.exception
                 next(c for c in at.checkbox if c.label.startswith('This crop')).set_value(True).run()
                 assert not at.exception
+                assert any('API key loaded from server settings' in message.value for message in at.success)
+                assert not any('API key' in field.label for field in at.text_input)
+                next(c for c in at.checkbox if c.label.startswith('I am authorised')).set_value(True).run()
+                with patch('ui.image_analysis_view.describe_photo',return_value={'description':'Visible colours only','visible_colors':['red'],'limitations':[],'wound_visible':True}) as describe:
+                    next(b for b in at.button if b.label=='Describe latest crop with AI').click().run()
+                    assert describe.call_args.args[1]=='test-server-secret'
+                    assert describe.call_args.kwargs['consent'] is True
+                assert all('test-server-secret' not in str(element.proto) for element in at if hasattr(element,'proto'))
                 match=lambda:next(b for b in at.button if b.label=='Match confirmed findings to products')
                 # Before the required clinical assessment, matching is not rendered.
                 assert not any(b.label=='Match confirmed findings to products' for b in at.button)

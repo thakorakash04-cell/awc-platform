@@ -6,7 +6,8 @@ import streamlit as st
 from vision.iqa_gate import evaluate_image_quality
 from vision.photo_workflow import prepare_photo,crop_photo,compare_measured_areas
 from vision.tissue_segmentation import segment_wound_tissue
-from vision.vision_model import describe_photo,DEFAULT_MODEL
+from vision.vision_model import describe_photo
+from vision.settings import load_vision_settings
 from data.wound_history import WoundHistory
 from data.awc_data_manager import get_awc_data_manager
 from core.awc_rules_engine import evaluate_awc_query
@@ -20,6 +21,13 @@ def render_image_analysis_view():
     st.caption('Capture → review → confirm clinical findings → match your formulary. Supports up to three dated photos of one wound.')
     if not can('use_tools'):
         st.info('Ask your administrator for assessment-tool access.');return
+    gemini_key,model=load_vision_settings()
+    with st.expander('Gemini AI settings',expanded=not bool(gemini_key)):
+        if gemini_key:st.success('Gemini API key loaded from server settings.')
+        else:
+            st.warning('Gemini API key is missing. Add GEMINI_API_KEY in Streamlit → Manage app → Settings → Secrets, then save and reboot the app.')
+            st.code('GEMINI_API_KEY = "your-private-key"',language='toml')
+        st.caption('Model: '+model+'. The key stays on the server. Photos are sent only after you authorise an AI description.')
     store=st.session_state._account_store;actor=st.session_state.actor
     dm=get_awc_data_manager()
     st.info('Photo observations are not a diagnosis. Colour cannot determine infection, depth, exudate volume or healing. Product candidates require a separate clinical assessment and confirmation.')
@@ -102,18 +110,14 @@ def render_image_analysis_view():
     latest=photos[-1]
     with st.expander('Optional AI visual description'):
         st.caption('Local analysis works without an API key. This optional step sends only the latest cropped image, re-encoded without EXIF metadata, to Google Gemini. A general-purpose model is not a validated wound diagnostic model. Provider terms and data handling apply.')
-        try:settings=dict(st.secrets)
-        except (FileNotFoundError,st.errors.StreamlitSecretNotFoundError):settings={}
-        key=str(settings.get('GEMINI_API_KEY',os.getenv('GEMINI_API_KEY','')))
-        model=str(settings.get('WOUND_VISION_MODEL',os.getenv('WOUND_VISION_MODEL',DEFAULT_MODEL)))
         st.caption('Configured model: '+model)
-        if not key:key=st.text_input('Gemini API key for this session',type='password',key='wound_gemini_key')
+        if not gemini_key:st.info('Configure the key in Gemini AI settings above to enable this step.')
         consent=st.checkbox('I am authorised to send this de-identified crop to Google for an AI description',key='photo_ai_consent_'+latest['digest'])
         note_key='visual_note_'+latest['digest']+model
-        if st.button('Describe latest crop with AI',disabled=not key or not consent):
+        if st.button('Describe latest crop with AI',disabled=not gemini_key or not consent):
             store.require_permission(actor,'use_tools')
             try:
-                with st.spinner('Requesting a visual description…'):st.session_state[note_key]=describe_photo(latest['image'],key,model,consent=consent)
+                with st.spinner('Requesting a visual description…'):st.session_state[note_key]=describe_photo(latest['image'],gemini_key,model,consent=consent)
                 store.log_event(actor,'tool_use','Optional photo description')
             except ValueError as exc:st.error(str(exc))
         if note_key in st.session_state:
