@@ -3,7 +3,7 @@ Poka-Yoke Clinical Safety Interlocks & Contraindication Matrix
 Implements deterministic error-proofing rules preventing hazardous dressing selections.
 """
 
-from typing import List, Tuple
+from typing import Optional, List, Tuple
 from core.models import (
     WoundAssessment,
     AWCProduct,

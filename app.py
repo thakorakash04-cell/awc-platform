@@ -4,11 +4,7 @@ Main Entry Point
 """
 
 import streamlit as st
-from ui.styles import apply_clinical_theme
-from ui.layperson_view import render_layperson_view
-from ui.clinician_view import render_clinician_view
-from ui.comparison_view import render_comparison_view
-from ui.image_analysis_view import render_image_analysis_view
+from workspace_auth import require_workspace
 
 
 def main():
@@ -18,6 +14,21 @@ def main():
         layout="wide",
         initial_sidebar_state="expanded",
     )
+
+    # Authenticate before loading or rendering any AWC workspace.
+    st.markdown("""<style>
+        [data-testid='stAppViewContainer']{background:#F4F6F8}
+        h1,h2,h3{color:#285e4c}
+        button[kind='primary']{background:#258467;border-color:#258467;color:white}
+        .block-container{padding-top:2rem}
+    </style>""", unsafe_allow_html=True)
+    require_workspace()
+
+    from ui.styles import apply_clinical_theme
+    from ui.layperson_view import render_layperson_view
+    from ui.clinician_view import render_clinician_view
+    from ui.comparison_view import render_comparison_view
+    from ui.image_analysis_view import render_image_analysis_view
 
     # Apply clinical CSS styles
     apply_clinical_theme()
